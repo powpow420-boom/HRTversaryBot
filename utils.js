@@ -1,4 +1,7 @@
 import 'dotenv/config';
+import timezones from './repository/Timezones.json' with { type: 'json' };
+
+const timezoneSet = new Set(timezones);
 
 export async function DiscordRequest(endpoint, options) {
   // append endpoint to root API URL
@@ -44,4 +47,31 @@ export function getRandomEmoji() {
 
 export function capitalize(str) {
   return str.charAt(0).toUpperCase() + str.slice(1);
+}
+
+export function isValidTimezone(timezone) {
+  if (typeof timezone !== 'string') {
+    return false;
+  }
+
+  return timezoneSet.has(timezone.trim());
+}
+
+export function createTimezoneChoices() {
+  return timezones.map((timezone) => ({
+    name: timezone,
+    value: timezone,
+  }));
+}
+
+export function getTimezoneAutocompleteChoices(input = '', limit = 25) {
+  const normalizedInput = input.toLowerCase().trim();
+
+  return timezones
+    .filter((timezone) => timezone.toLowerCase().includes(normalizedInput))
+    .slice(0, limit)
+    .map((timezone) => ({
+      name: timezone,
+      value: timezone,
+    }));
 }

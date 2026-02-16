@@ -38,7 +38,7 @@ async function checkAnniversaries() {
         const currentHour = now.hour();
         
         if (currentHour === 9) { // Send at 9 AM in their timezone
-          await sendAnniversaryMessage(user_id, anniversary_date, channel_id);
+          await sendAnniversaryMessage(user_id, anniversary_date, guild_id, channel_id);
         }
       }
     }
@@ -47,8 +47,41 @@ async function checkAnniversaries() {
   }
 }
 
-async function sendAnniversaryMessage(userId, anniversaryDate, channelId) {
+export async function runManualAnniversaryCheck() {
+  await checkAnniversaries();
+}
+
+async function canSendAnnouncement(userId, guildId, channelId) {
   try {
+    const channelResponse = await DiscordRequest(`channels/${channelId}`, {
+      method: 'GET',
+    });
+
+    const channel = await channelResponse.json();
+
+    if (!channel?.guild_id || channel.guild_id !== guildId) {
+      return false;
+    }
+
+    await DiscordRequest(`guilds/${guildId}/members/${userId}`, {
+      method: 'GET',
+    });
+
+    return true;
+  } catch (error) {
+    return false;
+  }
+}
+
+async function sendAnniversaryMessage(userId, anniversaryDate, guildId, channelId) {
+  try {
+    const allowedToSend = await canSendAnnouncement(userId, guildId, channelId);
+
+    if (!allowedToSend) {
+      console.log(`⏭️ Skipping announcement for user ${userId} in guild ${guildId} (user not in guild or channel mismatch).`);
+      return;
+    }
+
     const [day, month, year] = anniversaryDate.split('/');
     const startYear = parseInt(year);
     const currentYear = new Date().getFullYear();
@@ -65,7 +98,7 @@ async function sendAnniversaryMessage(userId, anniversaryDate, channelId) {
       body: message
     });
     
-    console.log(`✅ Sent HRTversary message for user ${userId} in channel ${channelId}`);
+    console.log(`✅ Sent HRTversary message for user ${userId} in guild ${guildId} channel ${channelId}`);
   } catch (error) {
     console.error('Error sending HRTversary message:', error);
   }

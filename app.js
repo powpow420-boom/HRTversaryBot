@@ -8,12 +8,12 @@ import {
   MessageComponentTypes,
   verifyKeyMiddleware,
 } from 'discord-interactions';
-import { getRandomEmoji, DiscordRequest } from './utils.js';
+import { getRandomEmoji, isValidTimezone, getTimezoneAutocompleteChoices } from './utils.js';
 import { getShuffledOptions, getResult } from './game.js';
 import { createTable } from './repository/databaseCheck.js';
 import { getUserAnniversary, databaseSave } from './repository/databaseFunctions.js';
 import { updateUserAnniversary } from './repository/databaseFunctions.js';
-import { startAnniversaryChecker } from './anniversaryChecker.js';
+import { startAnniversaryChecker, runManualAnniversaryCheck } from './anniversaryChecker.js';
 
 // Create an express app
 const app = express();
@@ -46,6 +46,32 @@ app.post('/interactions', verifyKeyMiddleware(process.env.PUBLIC_KEY), async fun
     return res.send({ type: InteractionResponseType.PONG });
   }
 
+  if (type === InteractionType.APPLICATION_COMMAND_AUTOCOMPLETE) {
+    const commandName = data?.name;
+
+    if (commandName === 'add_hrtversary' || commandName === 'change_hrtversary') {
+      const focusedOption = data.options?.find((option) => option.focused === true);
+
+      if (focusedOption?.name === 'timezone') {
+        const choices = getTimezoneAutocompleteChoices(focusedOption.value ?? '', 25);
+
+        return res.send({
+          type: InteractionResponseType.APPLICATION_COMMAND_AUTOCOMPLETE_RESULT,
+          data: {
+            choices,
+          },
+        });
+      }
+    }
+
+    return res.send({
+      type: InteractionResponseType.APPLICATION_COMMAND_AUTOCOMPLETE_RESULT,
+      data: {
+        choices: [],
+      },
+    });
+  }
+
   /**
    * Handle slash command requests
    * See https://discord.com/developers/docs/interactions/application-commands#slash-commands
@@ -74,9 +100,10 @@ app.post('/interactions', verifyKeyMiddleware(process.env.PUBLIC_KEY), async fun
     if (name === 'show_hrtversary') {
       // Send a message into the channel where command was triggered from
       const userId = req.body.member.user.id || req.body.user.id;
+      const guildId = req.body.guild_id;
 
       try {
-        const anniversaryData = await getUserAnniversary(userId);
+        const anniversaryData = await getUserAnniversary(userId, guildId);
 
         if (anniversaryData) {
           return res.send({
@@ -132,9 +159,19 @@ app.post('/interactions', verifyKeyMiddleware(process.env.PUBLIC_KEY), async fun
         });
       }
 
+      if (!isValidTimezone(timezone)) {
+        return res.send({
+          type: InteractionResponseType.CHANNEL_MESSAGE_WITH_SOURCE,
+          data: {
+            flags: InteractionResponseFlags.EPHEMERAL,
+            content: `❌ Invalid timezone. Please pick a valid timezone from the command options.`,
+          },
+        });
+      }
+
       try {
         // Check if user already has an HRTversary
-        const existingAnniversary = await getUserAnniversary(userId);
+        const existingAnniversary = await getUserAnniversary(userId, guildId);
         
         if (existingAnniversary) {
           return res.send({
@@ -184,6 +221,7 @@ app.post('/interactions', verifyKeyMiddleware(process.env.PUBLIC_KEY), async fun
 
     if (name === 'change_hrtversary') {
       const userId = req.body.member?.user?.id || req.body.user?.id;
+      const guildId = req.body.guild_id;
       const channelId = req.body.channel_id;
       const dateInput = data.options.find(opt => opt.name === 'date')?.value;
       const timezone = data.options.find(opt => opt.name === 'timezone')?.value;
@@ -202,9 +240,19 @@ app.post('/interactions', verifyKeyMiddleware(process.env.PUBLIC_KEY), async fun
         });
       }
 
+      if (!isValidTimezone(timezone)) {
+        return res.send({
+          type: InteractionResponseType.CHANNEL_MESSAGE_WITH_SOURCE,
+          data: {
+            flags: InteractionResponseFlags.EPHEMERAL,
+            content: `❌ Invalid timezone. Please pick a valid timezone from the command options.`,
+          },
+        });
+      }
+
       try {
         // Update in database
-        await updateUserAnniversary(userId, dateInput, timezone, channelId);
+        await updateUserAnniversary(userId, guildId, dateInput, timezone, channelId);
 
         return res.send({
           type: InteractionResponseType.CHANNEL_MESSAGE_WITH_SOURCE,
@@ -234,6 +282,76 @@ app.post('/interactions', verifyKeyMiddleware(process.env.PUBLIC_KEY), async fun
           data: {
             flags: InteractionResponseFlags.EPHEMERAL,
             content: `❌ Error updating your HRTversary. Please try again.`,
+          },
+        });
+      }
+    }
+
+    if (name === 'verify_timezone') {
+      const userId = req.body.member?.user?.id || req.body.user?.id;
+      const guildId = req.body.guild_id;
+
+      try {
+        const userData = await getUserAnniversary(userId, guildId);
+
+        if (!userData) {
+          return res.send({
+            type: InteractionResponseType.CHANNEL_MESSAGE_WITH_SOURCE,
+            data: {
+              flags: InteractionResponseFlags.EPHEMERAL,
+              content: `❌ You haven't set an HRTversary yet. Use /add_hrtversary first.`,
+            }
+          });
+        }
+
+        const timezoneCheck = isValidTimezone(userData.timezone);
+
+        if (timezoneCheck === true) {
+          return res.send({
+            type: InteractionResponseType.CHANNEL_MESSAGE_WITH_SOURCE,
+            data: {
+              flags: InteractionResponseFlags.EPHEMERAL,
+              content: `✅ Chosen timezone "${userData.timezone}" is valid`
+            }
+          });
+        }
+        return res.send({
+            type: InteractionResponseType.CHANNEL_MESSAGE_WITH_SOURCE,
+            data:{
+              flags: InteractionResponseFlags.EPHEMERAL,
+              content: `❌ Chosen timezone "${userData.timezone}" is not valid please change it `
+            }
+          });
+
+      } catch (err){
+        return res.send({
+          type: InteractionResponseType.CHANNEL_MESSAGE_WITH_SOURCE,
+          data: {
+            flags: InteractionResponseFlags.EPHEMERAL,
+            content: `❌ Error checking your timezone. Please try again.`,
+          },
+        });
+      }
+    }
+
+    if (name === 'check_anniversary') {
+      try {
+        await runManualAnniversaryCheck();
+
+        return res.send({
+          type: InteractionResponseType.CHANNEL_MESSAGE_WITH_SOURCE,
+          data: {
+            flags: InteractionResponseFlags.EPHEMERAL,
+            content: `✅ Manual anniversary check completed.`,
+          },
+        });
+      } catch (error) {
+        console.error('Error running manual anniversary check:', error);
+        return res.send({
+          type: InteractionResponseType.CHANNEL_MESSAGE_WITH_SOURCE,
+          data: {
+            flags: InteractionResponseFlags.EPHEMERAL,
+            content: `❌ Failed to run manual anniversary check.`,
           },
         });
       }
