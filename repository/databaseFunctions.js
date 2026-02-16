@@ -32,11 +32,15 @@ export function databaseGet(userId) {
   });
 }
 
-export function getUserAnniversary(userId){
-  const sql = `SELECT * FROM anniversaries WHERE user_id = ?`;
+export function getUserAnniversary(userId, guildId){
+  const hasGuildId = typeof guildId === 'string' && guildId.length > 0;
+  const sql = hasGuildId
+    ? `SELECT * FROM anniversaries WHERE user_id = ? AND guild_id = ?`
+    : `SELECT * FROM anniversaries WHERE user_id = ? ORDER BY id DESC`;
+  const params = hasGuildId ? [userId, guildId] : [userId];
 
   return new Promise((resolve, reject) => {
-    db.get(sql, [userId], (err, row) => {
+    db.get(sql, params, (err, row) => {
       if (err) {
         console.error(err.message);
         return reject(err);
@@ -71,13 +75,13 @@ export function getAllAnniversaries() {
   });
 }
 
-export function updateUserAnniversary(userId, anniversaryDate, timezone, channelId) {
+export function updateUserAnniversary(userId, guildId, anniversaryDate, timezone, channelId) {
   return new Promise((resolve, reject) => {
-    const sql = `UPDATE anniversaries SET anniversary_date = ?, timezone = ?, channel_id = ? WHERE user_id = ?`;
+    const sql = `UPDATE anniversaries SET anniversary_date = ?, timezone = ?, channel_id = ? WHERE user_id = ? AND guild_id = ?`;
 
     db.run(
       sql,
-      [anniversaryDate, timezone, channelId, userId],
+      [anniversaryDate, timezone, channelId, userId, guildId],
       function(err) {
         if (err) {
           console.error(err.message);
@@ -90,5 +94,30 @@ export function updateUserAnniversary(userId, anniversaryDate, timezone, channel
         resolve(this.changes);
       },
     );
+  });
+}
+
+export function getUserTimezone(userId, channelId){
+  const sql = 'SELECT * FROM anniversaries WHERE user_id = ? AND channel_id = ?';
+
+  return new Promise((resolve, reject) => {
+    db.get(sql, [userId, channelId], (err, row) => {
+      if (err) {
+        console.error(err.message);
+        return reject(err);
+      }
+      if (row) {
+        const user = new User();
+        user.id = row.id;
+        user.userId = row.user_id;
+        user.anniversaryDate = row.anniversary_date;
+        user.timezone = row.timezone;
+        user.guildId = row.guild_id;
+        user.channelId = row.channel_id;
+        resolve(user);
+      } else {
+        resolve(null); 
+      }
+    });
   });
 }
