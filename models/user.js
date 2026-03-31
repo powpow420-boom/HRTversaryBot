@@ -20,4 +20,5 @@ export class User {
   userId = undefined;
   anniversaryDate = undefined;
   timezone = undefined;
+  dateFormat = undefined;
 }

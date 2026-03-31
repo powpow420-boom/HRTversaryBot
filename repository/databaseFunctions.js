@@ -1,13 +1,22 @@
 import { db } from "./databaseCheck.js";
 import { User } from "../models/user.js";
 
+const DEFAULT_DATE_FORMAT = 'DD/MM/YYYY';
+
 export function databaseSave(UserData) {
   return new Promise((resolve, reject) => {
-    const sql = `INSERT INTO anniversaries(user_id, anniversary_date, timezone, guild_id, channel_id) VALUES (?, ?, ?, ?, ?)`;
+    const sql = `INSERT INTO anniversaries(user_id, anniversary_date, timezone, date_format, guild_id, channel_id) VALUES (?, ?, ?, ?, ?, ?)`;
 
     db.run(
       sql,
-      [UserData.userId, UserData.anniversaryDate, UserData.timezone, UserData.guildId, UserData.channelId],
+      [
+        UserData.userId,
+        UserData.anniversaryDate,
+        UserData.timezone,
+        UserData.dateFormat || DEFAULT_DATE_FORMAT,
+        UserData.guildId,
+        UserData.channelId,
+      ],
       function(err) {
         if (err) {
           console.error(err.message);
@@ -17,18 +26,6 @@ export function databaseSave(UserData) {
         resolve(this.lastID);
       },
     );
-  });
-}
-
-export function databaseGet(userId) {
-  const sql = `SELECT * FROM anniversaries`;
-
-  db.all(sql, [], (err, rows) => {
-    if (err) return console.error(err.message);
-
-    rows.forEach((element) => {
-      console.log(element);
-    });
   });
 }
 
@@ -51,6 +48,7 @@ export function getUserAnniversary(userId, guildId){
         user.userId = row.user_id;
         user.anniversaryDate = row.anniversary_date;
         user.timezone = row.timezone;
+        user.dateFormat = row.date_format || DEFAULT_DATE_FORMAT;
         user.guildId = row.guild_id;
         user.channelId = row.channel_id;
         resolve(user);
@@ -75,13 +73,13 @@ export function getAllAnniversaries() {
   });
 }
 
-export function updateUserAnniversary(userId, guildId, anniversaryDate, timezone, channelId) {
+export function updateUserAnniversary(userId, guildId, anniversaryDate, timezone, dateFormat, channelId) {
   return new Promise((resolve, reject) => {
-    const sql = `UPDATE anniversaries SET anniversary_date = ?, timezone = ?, channel_id = ? WHERE user_id = ? AND guild_id = ?`;
+    const sql = `UPDATE anniversaries SET anniversary_date = ?, timezone = ?, date_format = ?, channel_id = ? WHERE user_id = ? AND guild_id = ?`;
 
     db.run(
       sql,
-      [anniversaryDate, timezone, channelId, userId, guildId],
+      [anniversaryDate, timezone, dateFormat || DEFAULT_DATE_FORMAT, channelId, userId, guildId],
       function(err) {
         if (err) {
           console.error(err.message);
@@ -97,27 +95,3 @@ export function updateUserAnniversary(userId, guildId, anniversaryDate, timezone
   });
 }
 
-export function getUserTimezone(userId, channelId){
-  const sql = 'SELECT * FROM anniversaries WHERE user_id = ? AND channel_id = ?';
-
-  return new Promise((resolve, reject) => {
-    db.get(sql, [userId, channelId], (err, row) => {
-      if (err) {
-        console.error(err.message);
-        return reject(err);
-      }
-      if (row) {
-        const user = new User();
-        user.id = row.id;
-        user.userId = row.user_id;
-        user.anniversaryDate = row.anniversary_date;
-        user.timezone = row.timezone;
-        user.guildId = row.guild_id;
-        user.channelId = row.channel_id;
-        resolve(user);
-      } else {
-        resolve(null); 
-      }
-    });
-  });
-}
