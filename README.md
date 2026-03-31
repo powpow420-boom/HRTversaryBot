@@ -1,25 +1,21 @@
 # HRTversaryBot
 
-This project is HRTversaryBot, a Discord bot for tracking HRT anniversaries and celebrating milestones in your community.
-
-![Demo of app](https://github.com/discord/discord-example-app/raw/main/assets/getting-started-demo.gif?raw=true)
+This project is HRTversaryBot (a fork of discord-example-app https://github.com/discord/discord-example-app), a Discord bot for tracking HRT anniversaries and celebrating milestones in your community.
 
 ## Project structure
 
 Below is a basic overview of the project structure:
 
 ```
-├── examples    -> short, feature-specific sample apps
-│   ├── app.js  -> finished app.js code
-│   ├── button.js
-│   ├── command.js
-│   ├── modal.js
-│   ├── selectMenu.js
-├── .env.sample -> sample .env file
-├── app.js      -> main entrypoint for app
-├── commands.js -> slash command payloads + helpers
-├── game.js     -> logic specific to RPS
-├── utils.js    -> utility functions and enums
+├── .env.sample                -> sample .env file
+├── app.js                     -> main bot server and interaction handlers
+├── commands.js                -> slash command definitions and registration
+├── anniversaryChecker.js      -> scheduled/manual anniversary checks
+├── repository/databaseCheck.js -> sqlite connection + table setup
+├── repository/databaseFunctions.js -> anniversary CRUD helpers
+├── repository/Timezones.json  -> valid timezone list for autocomplete/validation
+├── models/user.js             -> user data model
+├── utils.js                   -> API helpers + timezone helpers
 ├── package.json
 ├── README.md
 └── .gitignore
@@ -39,13 +35,13 @@ Configuring the app is covered in detail in the [getting started guide](https://
 First clone the project:
 
 ```
-git clone https://github.com/discord/discord-example-app.git
+git clone https://github.com/powpow420-boom/HRTversaryBot.git
 ```
 
 Then navigate to its directory and install dependencies:
 
 ```
-cd discord-example-app
+cd HRTversaryBot
 npm install
 ```
 
@@ -59,7 +55,7 @@ Fetching credentials is covered in detail in the [getting started guide](https:/
 
 ### Install slash commands
 
-The commands for the example app are set up in `commands.js`. All of the commands in the `ALL_COMMANDS` array at the bottom of `commands.js` will be installed when you run the `register` command configured in `package.json`:
+The commands are set up in `commands.js`. All commands in `ALL_COMMANDS` are installed when you run the `register` script in `package.json`:
 
 ```
 npm run register
@@ -74,8 +70,6 @@ node app.js
 ```
 
 > ⚙️ A package [like `nodemon`](https://github.com/remy/nodemon), which watches for local changes and restarts your app, may be helpful while locally developing.
-
-If you aren't following the [getting started guide](https://discord.com/developers/docs/getting-started), you can move the contents of `examples/app.js` (the finished `app.js` file) to the top-level `app.js`.
 
 ### Set up interactivity
 
@@ -108,6 +102,5 @@ Click **Save Changes**, and your app should be ready to run 🚀
 ## Other resources
 
 - Read **[the documentation](https://discord.com/developers/docs/intro)** for in-depth information about API features.
-- Browse the `examples/` folder in this project for smaller, feature-specific code examples
 - Join the **[Discord Developers server](https://discord.gg/discord-developers)** to ask questions about the API, attend events hosted by the Discord API team, and interact with other devs.
 - Check out **[community resources](https://discord.com/developers/docs/topics/community-resources#community-resources)** for language-specific tools maintained by community members.

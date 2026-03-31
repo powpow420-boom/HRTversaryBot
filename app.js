@@ -1,15 +1,21 @@
 import 'dotenv/config';
 import express from 'express';
 import {
-  ButtonStyleTypes,
   InteractionResponseFlags,
   InteractionResponseType,
   InteractionType,
-  MessageComponentTypes,
   verifyKeyMiddleware,
 } from 'discord-interactions';
-import { getRandomEmoji, isValidTimezone, getTimezoneAutocompleteChoices } from './utils.js';
-import { getShuffledOptions, getResult } from './game.js';
+import {
+  DEFAULT_DATE_FORMAT,
+  getTimezoneAutocompleteChoices,
+  getTimezoneLabelWithOffset,
+  isSupportedDateFormat,
+  isValidTimezone,
+  normalizeDateInput,
+  resolveDateFormat,
+  SUPPORTED_DATE_FORMATS,
+} from './utils.js';
 import { createTable } from './repository/databaseCheck.js';
 import { getUserAnniversary, databaseSave } from './repository/databaseFunctions.js';
 import { updateUserAnniversary } from './repository/databaseFunctions.js';
@@ -23,8 +29,6 @@ await createTable();
 
 // Get port, or default to 3000
 const PORT = process.env.PORT || 3000;
-// To keep track of our active games
-const activeGames = {};
 
 // Simple route to verify server is running
 app.get('/', (req, res) => {
@@ -79,24 +83,6 @@ app.post('/interactions', verifyKeyMiddleware(process.env.PUBLIC_KEY), async fun
   if (type === InteractionType.APPLICATION_COMMAND) {
     const { name } = data;
 
-    // "test" command
-    if (name === 'test') {
-      // Send a message into the channel where command was triggered from
-      return res.send({
-        type: InteractionResponseType.CHANNEL_MESSAGE_WITH_SOURCE,
-        data: {
-          flags: InteractionResponseFlags.IS_COMPONENTS_V2,
-          components: [
-            {
-              type: MessageComponentTypes.TEXT_DISPLAY,
-              // Fetches a random emoji to send from a helper function
-              content: `hello world ${getRandomEmoji()}`
-            }
-          ]
-        },
-      });
-    }
-
     if (name === 'show_hrtversary') {
       // Send a message into the channel where command was triggered from
       const userId = req.body.member.user.id || req.body.user.id;
@@ -106,13 +92,16 @@ app.post('/interactions', verifyKeyMiddleware(process.env.PUBLIC_KEY), async fun
         const anniversaryData = await getUserAnniversary(userId, guildId);
 
         if (anniversaryData) {
+          const dateFormat = anniversaryData.dateFormat || DEFAULT_DATE_FORMAT;
+          const timezoneWithOffset = getTimezoneLabelWithOffset(anniversaryData.timezone);
           return res.send({
             type: InteractionResponseType.CHANNEL_MESSAGE_WITH_SOURCE,
             data: {
               flags: InteractionResponseFlags.EPHEMERAL,
               content: `🏳️‍⚧️ **Your HRTversary Information** 💉\n\n` +
                        `📅 HRT Start Date: ${anniversaryData.anniversaryDate}\n` +
-                       `🌍 Timezone: ${anniversaryData.timezone}\n` +
+                       `🗓️ Date Format: ${dateFormat}\n` +
+                       `🌍 Timezone: ${timezoneWithOffset}\n` +
                        `👤 User ID: ${anniversaryData.userId}`,
             },
           });
@@ -144,17 +133,38 @@ app.post('/interactions', verifyKeyMiddleware(process.env.PUBLIC_KEY), async fun
       const channelId = req.body.channel_id;
       const dateInput = data.options.find(opt => opt.name === 'date')?.value;
       const timezone = data.options.find(opt => opt.name === 'timezone')?.value;
+      const rawDateFormat = data.options.find(opt => opt.name === 'date_format')?.value;
 
-      // Validate date format (DD/MM/YYYY)
-      const dateRegex = /^(\d{2})\/(\d{2})\/(\d{4})$/;
-      const dateMatch = dateInput.match(dateRegex);
-
-      if (!dateMatch) {
+      if (!rawDateFormat) {
         return res.send({
           type: InteractionResponseType.CHANNEL_MESSAGE_WITH_SOURCE,
           data: {
             flags: InteractionResponseFlags.EPHEMERAL,
-            content: `❌ Invalid date format. Please use DD/MM/YYYY (e.g., 25/12/2020)`,
+            content: `❌ date_format is required. Supported formats: ${SUPPORTED_DATE_FORMATS.join(', ')}`,
+          },
+        });
+      }
+
+      const dateFormat = resolveDateFormat(rawDateFormat);
+
+      if (!isSupportedDateFormat(dateFormat)) {
+        return res.send({
+          type: InteractionResponseType.CHANNEL_MESSAGE_WITH_SOURCE,
+          data: {
+            flags: InteractionResponseFlags.EPHEMERAL,
+            content: `❌ Invalid date_format. Supported formats: ${SUPPORTED_DATE_FORMATS.join(', ')}`,
+          },
+        });
+      }
+
+      const normalizedDate = normalizeDateInput(dateInput, dateFormat);
+
+      if (!normalizedDate) {
+        return res.send({
+          type: InteractionResponseType.CHANNEL_MESSAGE_WITH_SOURCE,
+          data: {
+            flags: InteractionResponseFlags.EPHEMERAL,
+            content: `❌ Invalid date for format ${dateFormat}.`,
           },
         });
       }
@@ -180,6 +190,7 @@ app.post('/interactions', verifyKeyMiddleware(process.env.PUBLIC_KEY), async fun
               flags: InteractionResponseFlags.EPHEMERAL,
               content: `❌ You already have an HRTversary set!\n\n` +
                        `📅 Current date: ${existingAnniversary.anniversaryDate}\n` +
+                       `🗓️ Date format: ${existingAnniversary.dateFormat || DEFAULT_DATE_FORMAT}\n` +
                        `🌍 Timezone: ${existingAnniversary.timezone}\n\n` +
                        `Use /change_hrtversary to update it, or /show_hrtversary to view it.`,
             },
@@ -187,10 +198,12 @@ app.post('/interactions', verifyKeyMiddleware(process.env.PUBLIC_KEY), async fun
         }
 
         // Save to database
+        const timezoneWithOffset = getTimezoneLabelWithOffset(timezone);
         const userData = {
           userId: userId,
-          anniversaryDate: dateInput,
+          anniversaryDate: normalizedDate,
           timezone: timezone,
+          dateFormat: dateFormat,
           guildId: guildId,
           channelId: channelId
         };
@@ -202,8 +215,9 @@ app.post('/interactions', verifyKeyMiddleware(process.env.PUBLIC_KEY), async fun
           data: {
             flags: InteractionResponseFlags.EPHEMERAL,
             content: `✅ 🏳️‍⚧️ **HRTversary Set!** 💉\n\n` +
-                     `📅 HRT Start Date: ${dateInput}\n` +
-                     `🌍 Timezone: ${timezone}\n\n` +
+              `📅 HRT Start Date: ${normalizedDate}\n` +
+              `🗓️ Date Format: ${dateFormat}\n` +
+                     `🌍 Timezone: ${timezoneWithOffset}\n\n` +
                      `I'll announce your HRTversary in this channel every year! 💖`,
           },
         });
@@ -225,17 +239,14 @@ app.post('/interactions', verifyKeyMiddleware(process.env.PUBLIC_KEY), async fun
       const channelId = req.body.channel_id;
       const dateInput = data.options.find(opt => opt.name === 'date')?.value;
       const timezone = data.options.find(opt => opt.name === 'timezone')?.value;
+      const rawDateFormat = data.options.find(opt => opt.name === 'date_format')?.value;
 
-      // Validate date format (DD/MM/YYYY)
-      const dateRegex = /^(\d{2})\/(\d{2})\/(\d{4})$/;
-      const dateMatch = dateInput.match(dateRegex);
-
-      if (!dateMatch) {
+      if (!rawDateFormat) {
         return res.send({
           type: InteractionResponseType.CHANNEL_MESSAGE_WITH_SOURCE,
           data: {
             flags: InteractionResponseFlags.EPHEMERAL,
-            content: `❌ Invalid date format. Please use DD/MM/YYYY (e.g., 25/12/2020)`,
+            content: `❌ date_format is required. Supported formats: ${SUPPORTED_DATE_FORMATS.join(', ')}`,
           },
         });
       }
@@ -251,16 +262,43 @@ app.post('/interactions', verifyKeyMiddleware(process.env.PUBLIC_KEY), async fun
       }
 
       try {
+        const existingAnniversary = await getUserAnniversary(userId, guildId);
+        const dateFormat = resolveDateFormat(rawDateFormat);
+
+        if (!isSupportedDateFormat(dateFormat)) {
+          return res.send({
+            type: InteractionResponseType.CHANNEL_MESSAGE_WITH_SOURCE,
+            data: {
+              flags: InteractionResponseFlags.EPHEMERAL,
+              content: `❌ Invalid date_format. Supported formats: ${SUPPORTED_DATE_FORMATS.join(', ')}`,
+            },
+          });
+        }
+
+        const normalizedDate = normalizeDateInput(dateInput, dateFormat);
+        const timezoneWithOffset = getTimezoneLabelWithOffset(timezone);
+
+        if (!normalizedDate) {
+          return res.send({
+            type: InteractionResponseType.CHANNEL_MESSAGE_WITH_SOURCE,
+            data: {
+              flags: InteractionResponseFlags.EPHEMERAL,
+              content: `❌ Invalid date for format ${dateFormat}.`,
+            },
+          });
+        }
+
         // Update in database
-        await updateUserAnniversary(userId, guildId, dateInput, timezone, channelId);
+        await updateUserAnniversary(userId, guildId, normalizedDate, timezone, dateFormat, channelId);
 
         return res.send({
           type: InteractionResponseType.CHANNEL_MESSAGE_WITH_SOURCE,
           data: {
             flags: InteractionResponseFlags.EPHEMERAL,
             content: `✅ 🏳️‍⚧️ **HRTversary Updated!** 💉\n\n` +
-                     `📅 New HRT Start Date: ${dateInput}\n` +
-                     `🌍 Timezone: ${timezone}\n\n` +
+                     `📅 New HRT Start Date: ${normalizedDate}\n` +
+                     `🗓️ Date Format: ${dateFormat}\n` +
+                     `🌍 Timezone: ${timezoneWithOffset}\n\n` +
                      `Your HRTversary has been updated! 💖`,
           },
         });
@@ -307,11 +345,12 @@ app.post('/interactions', verifyKeyMiddleware(process.env.PUBLIC_KEY), async fun
         const timezoneCheck = isValidTimezone(userData.timezone);
 
         if (timezoneCheck === true) {
+          const timezoneWithOffset = getTimezoneLabelWithOffset(userData.timezone);
           return res.send({
             type: InteractionResponseType.CHANNEL_MESSAGE_WITH_SOURCE,
             data: {
               flags: InteractionResponseFlags.EPHEMERAL,
-              content: `✅ Chosen timezone "${userData.timezone}" is valid`
+              content: `✅ Chosen timezone "${timezoneWithOffset}" is valid`
             }
           });
         }

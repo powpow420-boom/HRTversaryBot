@@ -1,7 +1,7 @@
 import cron from 'node-cron';
 import moment from 'moment-timezone';
 import { getAllAnniversaries } from './repository/databaseFunctions.js';
-import { DiscordRequest } from './utils.js';
+import { DEFAULT_DATE_FORMAT, DiscordRequest, resolveDateFormat } from './utils.js';
 
 // Check anniversaries every hour
 export function startAnniversaryChecker() {
@@ -22,15 +22,22 @@ async function checkAnniversaries() {
     const anniversaries = await getAllAnniversaries();
     
     for (const anniversary of anniversaries) {
-      const { user_id, anniversary_date, timezone, guild_id, channel_id } = anniversary;
+      const { user_id, anniversary_date, timezone, guild_id, channel_id, date_format } = anniversary;
+      const dateFormat = resolveDateFormat(date_format || DEFAULT_DATE_FORMAT);
       
       // Get current date/time in user's timezone
       const now = moment.tz(timezone);
-      const currentDate = now.format('DD/MM');
+      const currentDate = now.format('MM-DD');
       
-      // Parse anniversary date (DD/MM/YYYY) and get DD/MM
-      const [day, month] = anniversary_date.split('/');
-      const anniversaryDayMonth = `${day}/${month}`;
+      // Parse anniversary date using user's preferred format.
+      const parsedAnniversary = moment(anniversary_date, dateFormat, true);
+
+      if (!parsedAnniversary.isValid()) {
+        console.error(`Skipping invalid anniversary date for user ${user_id}. date=${anniversary_date}, format=${dateFormat}`);
+        continue;
+      }
+
+      const anniversaryDayMonth = parsedAnniversary.format('MM-DD');
       
       // Check if today is the anniversary
       if (currentDate === anniversaryDayMonth) {
@@ -38,7 +45,7 @@ async function checkAnniversaries() {
         const currentHour = now.hour();
         
         if (currentHour === 9) { // Send at 9 AM in their timezone
-          await sendAnniversaryMessage(user_id, anniversary_date, guild_id, channel_id);
+          await sendAnniversaryMessage(user_id, anniversary_date, dateFormat, guild_id, channel_id);
         }
       }
     }
@@ -73,7 +80,7 @@ async function canSendAnnouncement(userId, guildId, channelId) {
   }
 }
 
-async function sendAnniversaryMessage(userId, anniversaryDate, guildId, channelId) {
+async function sendAnniversaryMessage(userId, anniversaryDate, dateFormat, guildId, channelId) {
   try {
     const allowedToSend = await canSendAnnouncement(userId, guildId, channelId);
 
@@ -82,8 +89,14 @@ async function sendAnniversaryMessage(userId, anniversaryDate, guildId, channelI
       return;
     }
 
-    const [day, month, year] = anniversaryDate.split('/');
-    const startYear = parseInt(year);
+    const parsedAnniversary = moment(anniversaryDate, dateFormat, true);
+
+    if (!parsedAnniversary.isValid()) {
+      console.error(`Cannot send announcement with invalid date for user ${userId}. date=${anniversaryDate}, format=${dateFormat}`);
+      return;
+    }
+
+    const startYear = parsedAnniversary.year();
     const currentYear = new Date().getFullYear();
     const yearsOnHRT = currentYear - startYear;
     
