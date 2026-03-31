@@ -2,6 +2,8 @@
 
 This project is HRTversaryBot (a fork of discord-example-app https://github.com/discord/discord-example-app), a Discord bot for tracking HRT anniversaries and celebrating milestones in your community.
 
+> 📋 See what's new in the [Changelog](CHANGELOG.md).
+
 ## Project structure
 
 Below is a basic overview of the project structure:
