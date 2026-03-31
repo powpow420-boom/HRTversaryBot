@@ -1,7 +1,10 @@
 import 'dotenv/config';
 import timezones from './repository/Timezones.json' with { type: 'json' };
+import moment from 'moment-timezone';
 
 const timezoneSet = new Set(timezones);
+export const DEFAULT_DATE_FORMAT = 'DD/MM/YYYY';
+export const SUPPORTED_DATE_FORMATS = ['DD/MM/YYYY', 'MM/DD/YYYY', 'YYYY-MM-DD', 'DD-MM-YYYY'];
 
 export async function DiscordRequest(endpoint, options) {
   // append endpoint to root API URL
@@ -39,16 +42,6 @@ export async function InstallGlobalCommands(appId, commands) {
   }
 }
 
-// Simple method that returns a random emoji from list
-export function getRandomEmoji() {
-  const emojiList = ['😭','😄','😌','🤓','😎','😤','🤖','😶‍🌫️','🌏','📸','💿','👋','🌊','✨'];
-  return emojiList[Math.floor(Math.random() * emojiList.length)];
-}
-
-export function capitalize(str) {
-  return str.charAt(0).toUpperCase() + str.slice(1);
-}
-
 export function isValidTimezone(timezone) {
   if (typeof timezone !== 'string') {
     return false;
@@ -57,21 +50,63 @@ export function isValidTimezone(timezone) {
   return timezoneSet.has(timezone.trim());
 }
 
-export function createTimezoneChoices() {
-  return timezones.map((timezone) => ({
-    name: timezone,
-    value: timezone,
-  }));
+function formatGmtOffset(offsetMinutes) {
+  const sign = offsetMinutes >= 0 ? '+' : '-';
+  const absoluteOffset = Math.abs(offsetMinutes);
+  const hours = Math.floor(absoluteOffset / 60);
+  const minutes = absoluteOffset % 60;
+  return `GMT${sign}${String(hours).padStart(2, '0')}:${String(minutes).padStart(2, '0')}`;
+}
+
+export function getTimezoneLabelWithOffset(timezone) {
+  if (!isValidTimezone(timezone)) {
+    return timezone;
+  }
+
+  const offsetMinutes = moment.tz(timezone).utcOffset();
+  const gmtOffset = formatGmtOffset(offsetMinutes);
+  return `${timezone} (${gmtOffset})`;
 }
 
 export function getTimezoneAutocompleteChoices(input = '', limit = 25) {
   const normalizedInput = input.toLowerCase().trim();
 
   return timezones
-    .filter((timezone) => timezone.toLowerCase().includes(normalizedInput))
-    .slice(0, limit)
     .map((timezone) => ({
-      name: timezone,
+      timezone,
+      label: getTimezoneLabelWithOffset(timezone),
+    }))
+    .filter(({ timezone, label }) => (
+      timezone.toLowerCase().includes(normalizedInput) ||
+      label.toLowerCase().includes(normalizedInput)
+    ))
+    .slice(0, limit)
+    .map(({ timezone, label }) => ({
+      name: label,
       value: timezone,
     }));
+}
+
+export function resolveDateFormat(dateFormat) {
+  if (typeof dateFormat !== 'string' || dateFormat.trim().length === 0) {
+    return DEFAULT_DATE_FORMAT;
+  }
+
+  return dateFormat.trim().toUpperCase();
+}
+
+export function isSupportedDateFormat(dateFormat) {
+  const normalizedFormat = resolveDateFormat(dateFormat);
+  return SUPPORTED_DATE_FORMATS.includes(normalizedFormat);
+}
+
+export function normalizeDateInput(dateInput, dateFormat) {
+  const normalizedFormat = resolveDateFormat(dateFormat);
+  const parsedDate = moment(dateInput, normalizedFormat, true);
+
+  if (!parsedDate.isValid()) {
+    return null;
+  }
+
+  return parsedDate.format(normalizedFormat);
 }
